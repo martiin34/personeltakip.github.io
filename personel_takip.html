@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personel Takip Paneli V4</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial;background:#eef2f7;}
+header{background:#4f46e5;color:white;padding:15px;text-align:center;font-size:22px;}
+.container{max-width:1100px;margin:auto;padding:12px;}
+.card{background:white;padding:12px;border-radius:10px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1);}
+.grid{display:grid;gap:10px;}
+.grid2{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+button{border:none;padding:10px;border-radius:8px;cursor:pointer;color:white;}
+.btnAdd{background:#10b981}
+.btnEdit{background:#f59e0b}
+.btnDelete{background:#ef4444}
+.btnDetail{background:#3b82f6}
+input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;margin-bottom:8px;}
+table{width:100%;border-collapse:collapse;display:block;overflow-x:auto;}
+th,td{padding:8px;border-bottom:1px solid #eee;text-align:center;white-space:nowrap;}
+th{background:#f1f5f9;}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;}
+.summary div{background:#f8fafc;padding:10px;border-radius:8px;text-align:center;font-weight:bold;}
+/* Modal */
+.modal{display:none;position:fixed;z-index:10;left:0;top:0;width:100%;height:100%;overflow:auto;background:rgba(0,0,0,0.5);}
+.modal-content{background:white;margin:10% auto;padding:20px;border-radius:10px;width:90%;max-width:400px;position:relative;}
+.close{position:absolute;top:10px;right:15px;font-size:22px;font-weight:bold;color:#333;cursor:pointer;}
+</style>
+</head>
+<body>
+
+<header>Personel Takip Paneli V4</header>
+<div class="container">
+
+<div class="card">
+<h3>Dashboard</h3>
+<div class="summary">
+<div id="toplamPersonel">Personel:0</div>
+<div id="toplamMaas">Maaş:0</div>
+<div id="toplamMesai">Mesai:0</div>
+<div id="toplamNet">Net:0</div>
+</div>
+<canvas id="chart"></canvas>
+<canvas id="pie"></canvas>
+<button class="btnDetail" onclick="pdfAl()">PDF Olarak Kaydet</button>
+</div>
+
+<div class="card">
+<h3>Personel Ekle</h3>
+<div class="grid grid2">
+<div>
+<input id="ad" placeholder="Ad Soyad">
+<input id="tel" placeholder="Telefon">
+<input id="maas" type="number" placeholder="Temel Maaş">
+</div>
+<div>
+<input id="mesaiUcret" type="number" placeholder="Mesai Saat Ücreti">
+<input id="kesintiGun" type="number" placeholder="Devamsızlık Günlük Kesinti">
+<button class="btnAdd" onclick="personelEkle()">Kaydet</button>
+</div>
+</div>
+</div>
+
+<div class="card">
+<h3>İşlem Ekle</h3>
+<div class="grid grid2">
+<div>
+<select id="personelSec"></select>
+<select id="islemTip">
+<option value="mesai">Mesai</option>
+<option value="avans">Avans</option>
+<option value="dev">Devamsızlık</option>
+</select>
+</div>
+<div>
+<input id="deger" type="number" placeholder="Saat / Gün / Tutar">
+<button class="btnDetail" onclick="islemEkle()">Kaydet</button>
+</div>
+</div>
+</div>
+
+<div class="card">
+<h3>Personel Listesi</h3>
+<input id="arama" placeholder="Ara" onkeyup="listeFiltre()">
+<table>
+<thead>
+<tr>
+<th>Ad</th><th>Telefon</th><th>Maaş</th><th>Mesai</th><th>Avans</th><th>Kesinti</th><th>Net</th><th>Detay</th><th>Sil</th>
+</tr>
+</thead>
+<tbody id="liste"></tbody>
+</table>
+</div>
+
+</div>
+
+<!-- Modal -->
+<div id="detayModal" class="modal">
+<div class="modal-content">
+<span class="close" onclick="modalKapat()">&times;</span>
+<div id="detayIcerik"></div>
+</div>
+</div>
+
+<script>
+let data = JSON.parse(localStorage.getItem("personel_v4")) || []
+
+function TL(v){
+return new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(v)
+}
+
+function kaydet(){localStorage.setItem("personel_v4",JSON.stringify(data))}
+
+function personelEkle(){
+if(!ad.value||!tel.value){alert("Ad ve telefon boş olamaz!");return;}
+let p={ad:ad.value,tel:tel.value,maas:+maas.value||0,mesaiUcret:+mesaiUcret.value||0,kesGun:+kesintiGun.value||0,mesai:0,avans:0,kes:0}
+data.push(p)
+kaydet();render()
+ad.value=tel.value=maas.value=mesaiUcret.value=kesintiGun.value=""
+}
+
+function islemEkle(){
+let i=personelSec.value, tip=islemTip.value, v=+deger.value||0, p=data[i]
+if(tip=="mesai") p.mesai+=v*p.mesaiUcret
+if(tip=="avans") p.avans+=v
+if(tip=="dev") p.kes+=v*p.kesGun
+kaydet();render(); deger.value=""
+}
+
+function sil(i){if(confirm("Silinsin mi?")){data.splice(i,1); kaydet(); render();}}
+
+function detay(i){
+let p=data[i], net=p.maas+p.mesai-p.avans-p.kes
+detayIcerik.innerHTML=`
+<b>Ad:</b> ${p.ad}<br>
+<b>Telefon:</b> ${p.tel}<br>
+<b>Maaş:</b> ${TL(p.maas)}<br>
+<b>Mesai:</b> ${TL(p.mesai)}<br>
+<b>Avans:</b> ${TL(p.avans)}<br>
+<b>Kesinti:</b> ${TL(p.kes)}<br>
+<b>Net:</b> ${TL(net)}
+`
+detayModal.style.display="block"
+}
+
+function modalKapat(){detayModal.style.display="none"}
+
+function render(){
+let html="",labels=[],maaslar=[],mesailer=[],netler=[],tMaas=0,tMesai=0,tNet=0
+data.forEach((p,i)=>{
+let net=p.maas+p.mesai-p.avans-p.kes
+tMaas+=p.maas; tMesai+=p.mesai; tNet+=net
+labels.push(p.ad); maaslar.push(p.maas); mesailer.push(p.mesai); netler.push(net)
+html+=`<tr>
+<td>${p.ad}</td>
+<td><a href="tel:${p.tel}">${p.tel}</a></td>
+<td>${TL(p.maas)}</td>
+<td style="color:#10b981">${TL(p.mesai)}</td>
+<td style="color:#f59e0b">${TL(p.avans)}</td>
+<td style="color:#ef4444">${TL(p.kes)}</td>
+<td><b>${TL(net)}</b></td>
+<td><button class="btnDetail" onclick="detay(${i})">Gör</button></td>
+<td><button class="btnDelete" onclick="sil(${i})">Sil</button></td>
+</tr>`
+})
+liste.innerHTML=html
+toplamPersonel.innerText="Personel: "+data.length
+toplamMaas.innerText="Toplam Maaş: "+TL(tMaas)
+toplamMesai.innerText="Toplam Mesai: "+TL(tMesai)
+toplamNet.innerText="Toplam Net: "+TL(tNet)
+personelSec.innerHTML=data.map((p,i)=>`<option value="${i}">${p.ad}</option>`).join("")
+grafik(labels,maaslar,mesailer,netler)
+}
+
+let chart,pie
+function grafik(l,m,me,n){
+if(chart) chart.destroy()
+if(pie) pie.destroy()
+chart=new Chart(document.getElementById("chart"),{
+type:"bar",
+data:{labels:l,datasets:[
+{label:"Maaş",data:m,backgroundColor:"#4f46e5"},
+{label:"Mesai",data:me,backgroundColor:"#10b981"},
+{label:"Net",data:n,backgroundColor:"#f59e0b"}
+]}
+})
+pie=new Chart(document.getElementById("pie"),{
+type:"pie",
+data:{labels:["Maaş","Mesai"],datasets:[{data:[m.reduce((a,b)=>a+b,0),me.reduce((a,b)=>a+b,0)],backgroundColor:["#4f46e5","#10b981"]}]}
+})
+}
+
+function listeFiltre(){
+let q=arama.value.toLowerCase()
+document.querySelectorAll("#liste tr").forEach(r=>{r.style.display=r.innerText.toLowerCase().includes(q)?"":"none"})
+}
+
+function pdfAl(){
+const { jsPDF } = window.jspdf
+let doc=new jsPDF()
+doc.setFontSize(12)
+let y=10
+data.forEach(p=>{
+let net=p.maas+p.mesai-p.avans-p.kes
+doc.text(`Ad:${p.ad} | Tel:${p.tel} | Maaş:${TL(p.maas)} | Mesai:${TL(p.mesai)} | Avans:${TL(p.avans)} | Kesinti:${TL(p.kes)} | Net:${TL(net)}`,10,y)
+y+=8
+})
+doc.save("personel_rapor.pdf")
+}
+
+render()
+</script>
+
+</body>
+</html>
